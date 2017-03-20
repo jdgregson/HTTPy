@@ -21,7 +21,7 @@ HTTPy's [bug tracker](https://github.com/jdgregson/HTTPy/issues).
 
 ## INSTALLATION/SETUP
 For HTTPy to run, the files `const.py`, `daemon.py`
-and `\__init__.py` must be in the `bin/` directory,
+and `__init__.py` must be in the `bin/` directory,
 which must be in the same directory as `httpy.py`
 
 1.  Edit the `httpy.py` file and change the variable
@@ -35,6 +35,6 @@ which must be in the same directory as `httpy.py`
     variables are set correctly.
 
 3.  Start HTTPy by calling the file `httpy.py` with `start`
-    as the argument (e.g. `httpy start`). Use `--no-daemon`
+    as the argument (e.g. `/path/to/httpy.py start`). Use `--no-daemon`
     instead of `start` if you would like to see console
     messages.
