@@ -24,7 +24,7 @@
 # Change this to whatever it is in your tests.
 # TODO: This should be changed to /etc/something
 # before httpy is released
-CONFIG_FILE = "/home/corbin/httpy/trunk/httpy.conf"
+CONFIG_FILE = "/home/corbin/HTTPy/httpy.conf"
 
 import sys
 import os
