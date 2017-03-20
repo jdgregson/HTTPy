@@ -288,6 +288,7 @@ def main():
         sock.listen(5)
         while True:
             client, address = sock.accept()
+            log("accepted connection from %s" % str(address), "info")
             # place the client in the queue
             queue.put((client, address))
     finally:
