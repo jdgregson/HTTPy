@@ -3,7 +3,7 @@
 #
 # HTTPy version 0.2.0
 #
-# Copyright (c) 2012 Corbin <jdgregson@gmail.com>
+# Copyright (c) 2017 Jonathan Gregson  <jdgregson@gmail.com>
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -38,8 +38,7 @@ import threading
 import Queue
 from bin import const
 from bin import daemon
-#import const
-#from daemon import Daemon
+
 
 def load_configuration():
     """
@@ -55,6 +54,7 @@ def load_configuration():
     config = conf_file.read()
     exec(config)
     return
+
 
 # TODO: Currently does not respect the LOG_MAX_SIZE
 #  config setting. It simply appends always.
@@ -91,6 +91,7 @@ def log(message, message_type=None):
         logger.removeHandler(hdlr)
     return
 
+
 def read_header(header):
     """
     Takes an HTTP header as a string and converts it
@@ -107,6 +108,7 @@ def read_header(header):
         header.append(value.replace("%20", " "))
     return header
 
+
 def make_header(response, content_type, content_length):
     """
     Builds and returns an HTTP header as a string.
@@ -119,6 +121,7 @@ def make_header(response, content_type, content_length):
     header += "Connection: close\r\n"
     header += "Content-Type: %s\r\n\n" % content_type
     return header
+
 
 def index(path, page):
     """
@@ -149,6 +152,7 @@ def index(path, page):
                      name, name, ' '*(20-len(name)),fsize)
     html += "</pre>\n<br />\n<hr />\n</body>\n</html>"
     return html
+
 
 def get_html(page):
     """
@@ -218,6 +222,7 @@ def get_html(page):
     header = make_header(response, mtype, str(html.__len__()))
     return header + html
 
+
 class ClientHandler(threading.Thread):
     """
     Gets clients from the queue and answers them. This
@@ -253,6 +258,7 @@ class ClientHandler(threading.Thread):
             # tell queue that the client has been served
             self.queue.task_done()
 
+
 def main():
     """
     Main() just prepares everything, including the
@@ -287,6 +293,7 @@ def main():
     finally:
         sock.close()
 
+
 class HTTPyDaemon(daemon.Daemon):
     """
     Overrides the Daemon class's default run method.
@@ -296,6 +303,7 @@ class HTTPyDaemon(daemon.Daemon):
     def run(self):
         while True:
             main()
+
 
 if __name__ == "__main__":
     daemon = HTTPyDaemon('/tmp/httpy-daemon.pid')
@@ -316,3 +324,4 @@ if __name__ == "__main__":
         print "Usage: %s start|stop|restart\n" % sys.argv[0]
         print "    --no-daemon  Stay in the foreground. For debugging.\n"
         sys.exit(2)
+
