@@ -22,8 +22,7 @@
 #*************************************************************************
 
 # Change this to whatever it is in your tests.
-# TODO: This should be changed to /etc/something
-# before httpy is released
+# TODO: This should be changed to /etc/something before httpy is released
 CONFIG_FILE = "/home/corbin/HTTPy/httpy.conf"
 
 import sys
@@ -42,8 +41,8 @@ from bin import daemon
 
 def load_configuration():
     """
-    Loads the configuration file. The file's path
-    is set using the "CONFIG_FILE" variable.
+    Loads the configuration file. The file's path is set using the "CONFIG_FILE"
+    variable.
     """
 
     try:
@@ -56,18 +55,14 @@ def load_configuration():
     return
 
 
-# TODO: Currently does not respect the LOG_MAX_SIZE
-#  config setting. It simply appends always.
+# TODO: Currently does not respect the LOG_MAX_SIZE config setting. It simply
+# appends always.
 def log(message, message_type=None):
     """
-    logs messages to the console and the log file.
-
-    The first argument is the message to be logged.
-    The second is the log entry type, and is not
-    required. Valid types are 'info', 'error',
-    'warning', and 'debug.' If no value is supplied,
-    or the value supplied is not defined, it defaults
-    to 'debug.'
+    logs messages to the console and the log file. The first argument is the
+    message to be logged. The second is the log entry type, and is not required.
+    Valid types are 'info', 'error', 'warning', and 'debug.' If no value is
+    supplied, or the value supplied is not defined, it defaults to 'debug.'
     """
 
     print message
@@ -94,13 +89,11 @@ def log(message, message_type=None):
 
 def read_header(header):
     """
-    Takes an HTTP header as a string and converts it
-    into a list, then returns the list. The values
-    in the list are in the same order as they were
-    in the header.
+    Takes an HTTP header as a string and converts it into a list, then returns
+    the list. The values in the list are in the same order as they were in the
+    header.
     """
 
-    # commence complex string/list manipulation! :D
     _header = ' '.join(' '.join(' '.join(' '.join(header.split("\r\n"))\
               .strip().split('?')).split('&')).split('=')).split(' ')
     header = []
@@ -111,8 +104,8 @@ def read_header(header):
 
 def make_header(response, content_type, content_length):
     """
-    Builds and returns an HTTP header as a string.
-    All arguments are required, and must be strings.
+    Builds and returns an HTTP header as a string. All arguments are required,
+    and must be strings.
     """
 
     header = "HTTP/1.1 %s\r\n" % response
@@ -125,14 +118,13 @@ def make_header(response, content_type, content_length):
 
 def index(path, page):
     """
-    Creates an index of a directory and returns it
-    as HTML.
+    Creates an index of a directory and returns it as HTML.
     """
 
     # This code is kind of ugly...
     cmd = "ls -p '%s'" % path
-    p = Popen(cmd, shell=True, stdin=PIPE, stdout=PIPE,
-              stderr=STDOUT, close_fds=True)
+    p = Popen(cmd, shell=True, stdin=PIPE, stdout=PIPE, stderr=STDOUT,
+              close_fds=True)
     output = p.stdout.read()
     files = output.split("\n")
     html = "<html>\n<body>\n<h1>Index of '%s'</h1><br />\n" % page
@@ -148,20 +140,18 @@ def index(path, page):
                 fsize = "---"
             if page == "/":
                 page = ""
-            html += "<a href='%s/%s'>%s</a>%s%s\n" % (page,
-                     name, name, ' '*(20-len(name)),fsize)
+            html += "<a href='%s/%s'>%s</a>%s%s\n" % (
+                     page, name, name, ' '*(20-len(name)), fsize)
     html += "</pre>\n<br />\n<hr />\n</body>\n</html>"
     return html
 
 
 def get_html(page):
     """
-    Opens the file that the client requested, reads
-    the contents, and returns them. If it is not able
-    to read the file, it will return a 404 error, and
-    attempt to load the default 'missing' page. If no
-    missing page is found it will return a very basic
-    header and HTML 404 message.
+    Opens the file that the client requested, reads the contents, and returns
+    them. If it is not able to read the file, it will return a 404 error, and
+    attempt to load the default 'missing' page. If no missing page is found it
+    will return a very basic header and HTML 404 message.
     """
 
     path = const.DOCUMENT_ROOT + os.path.abspath(page)
@@ -182,15 +172,12 @@ def get_html(page):
                 response = "200 OK"
                 mtype = types.guess_type("%s/%s"%(path, const.DEFAULT_PAGE))[0]
             except IOError, e:
-                # index the directory if the
-                # configuration allows it
+                # index the directory if the configuration allows it
                 if const.DIRECTORY_INDEXING:
                     html = index(path, page)
                     response = "200 OK"
                     mtype = "text/html"
-                # if it doesn't allow it,
-                # say that the directory
-                # is forbidden
+                # if it doesn't allow it, say that the directory is forbidden
                 else:
                     response = "403 Forbidden"
                     mtype = "text/html"
@@ -225,10 +212,9 @@ def get_html(page):
 
 class ClientHandler(threading.Thread):
     """
-    Gets clients from the queue and answers them. This
-    is threaded, to allow multiple page requests to be
-    answered at once. Be default, HTTPy threads five
-    instances of this class.
+    Gets clients from the queue and answers them. This is threaded, to allow
+    multiple page requests to be answered at once. Be default, HTTPy threads
+    five instances of this class.
     """
 
     def __init__(self, queue):
@@ -261,10 +247,9 @@ class ClientHandler(threading.Thread):
 
 def main():
     """
-    Main() just prepares everything, including the
-    socket, port, threads and queue, then waits for
-    connections, which it then puts on the queue for
-    the ClientHandler threads to answer.
+    Main() just prepares everything, including the socket, port, threads and
+    queue, then waits for connections, which it then puts on the queue for the
+    ClientHandler threads to answer.
     """
 
     load_configuration()
@@ -297,9 +282,8 @@ def main():
 
 class HTTPyDaemon(daemon.Daemon):
     """
-    Overrides the Daemon class's default run method.
-    This tells the daemon to start main() after it
-    is daemonized.
+    Overrides the Daemon class's default run method. This tells the daemon to
+    start main() after it is daemonized.
     """
     def run(self):
         while True:
