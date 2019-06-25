@@ -1,5 +1,5 @@
 # HTTPy
-HTTPy was originally hosted on [Launchpad](http://bazaar.launchpad.net/~corbin/httpy).
+HTTPy was originally hosted on [Launchpad](https://code.launchpad.net/~corbin/httpy/trunk).
 
 HTTPy is a lightweight web server, written in python. It is rather basic, and
 is not capable of parsing any server-side scripts. It simply serves any page 
