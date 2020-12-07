@@ -87,6 +87,14 @@ def log(message, message_type=None):
     return
 
 
+def safe_exit():
+    if isinstance(sock, socket._socketobject):
+        sock.shutdown()
+        sock.close()
+    print "\nExiting...\n"
+    sys.exit(0)
+
+
 def read_header(header):
     """
     Takes an HTTP header as a string and converts it into a list, then returns
@@ -277,7 +285,7 @@ def main():
             # place the client in the queue
             queue.put((client, address))
     finally:
-        sock.close()
+        safe_exit()
 
 
 class HTTPyDaemon(daemon.Daemon):
@@ -300,7 +308,10 @@ if __name__ == "__main__":
         elif 'restart' == sys.argv[1]:
             daemon.restart()
         elif '--no-daemon' == sys.argv[1]:
-            main()
+            try:
+                main()
+            except KeyboardInterrupt:
+                safe_exit()
         else:
             print "Unknown command"
             sys.exit(2)
