@@ -1,9 +1,10 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 #*************************************************************************
 #
-# HTTPy version 0.2.0
+# HTTPy version 0.2.1
 #
-# Copyright (c) 2017 Jonathan Gregson  <jdgregson@gmail.com>
+# Copyright (c) 2020 Jonathan Gregson <jonathan@jdgregson.com>
+#                                     <jdgregson@gmail.com>
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -21,22 +22,25 @@
 #
 #*************************************************************************
 
-# Change this to whatever it is in your tests.
-# TODO: This should be changed to /etc/something before httpy is released
-CONFIG_FILE = "/home/corbin/HTTPy/httpy.conf"
-
 import sys
 import os
 import socket
 import logging
+import threading
+import queue
 import mimetypes as types
 from subprocess import Popen
 from subprocess import PIPE
 from subprocess import STDOUT
-import threading
-import Queue
+from email import message_from_string
 from bin import const
 from bin import daemon
+
+# Globals
+sock = None
+handlers = []
+CWD = os.getcwd()
+CONFIG_FILE = CWD + "/httpy.conf"
 
 
 def load_configuration():
@@ -44,11 +48,11 @@ def load_configuration():
     Loads the configuration file. The file's path is set using the "CONFIG_FILE"
     variable.
     """
-
     try:
         conf_file = open(CONFIG_FILE, "r")
-    except IOError as (errno, strerr):
-        print "Could not load config file at '%s': %s" % (CONFIG_FILE, strerr)
+    except IOError as e:
+        error, strerr = e.args
+        print(f"Could not load config file at '{CONFIG_FILE}': {strerr}")
         sys.exit(1)
     config = conf_file.read()
     exec(config)
@@ -64,11 +68,10 @@ def log(message, message_type=None):
     Valid types are 'info', 'error', 'warning', and 'debug.' If no value is
     supplied, or the value supplied is not defined, it defaults to 'debug.'
     """
-
-    print message
+    print(message)
     if const.USE_TEXT_LOG:
-        logger = logging.getLogger('httpy')
-        formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+        logger = logging.getLogger("httpy")
+        formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
         hdlr = logging.FileHandler(const.LOG_LOCATION)
         hdlr.setFormatter(formatter)
         logger.setLevel(logging.INFO)
@@ -88,169 +91,202 @@ def log(message, message_type=None):
 
 
 def safe_exit():
-    if isinstance(sock, socket._socketobject):
-        sock.shutdown()
+    """
+    Closes all open connections, closes the socket, and then exits 0.
+    """
+    print("\nClosing socket and exiting...\n")
+    if sock:
+        for handler in handlers:
+            handler.close()
+        sock.shutdown(socket.SHUT_RDWR)
         sock.close()
-    print "\nExiting...\n"
     sys.exit(0)
+
+
+def get_file_contents(filename):
+    """
+    Attempts to read files and returns content. If initial read fails, tries to
+    read again in binary mode.
+    """
+    try:
+        with open(filename) as f:
+            return f.read()
+    except:
+        with open(filename, mode="rb") as f:
+            return f.read()
+
+
+def send_data(client, http_status, content_type, data):
+    """
+    Sends the specified data to the specified client. Will also craft and send
+    an HTTP header using the content type and HTTP status specified.
+    """
+    header = make_header(http_status, content_type, len(data))
+    client.send(bytes(header, "utf-8"))
+    if not isinstance(data, (bytes, bytearray)):
+        data = bytes(data, "utf-8")
+    client.send(data)
 
 
 def read_header(header):
     """
-    Takes an HTTP header as a string and converts it into a list, then returns
-    the list. The values in the list are in the same order as they were in the
-    header.
+    Takes an HTTP request as a string and returns the headers as a dict.
     """
+    request = str(header, "ASCII").split("\r\n", 1)[0]
+    request_headers = str(header, "ASCII").split("\r\n", 1)[1]
+    request_headers = message_from_string(request_headers)
+    request_headers = dict(request_headers)
+    request_headers["Method"] = request.split(" ")[0]
+    request_headers["Request"] = request.split(" ")[1]
+    request_headers["Protocol"] = request.split(" ")[2]
+    return request_headers
 
-    _header = ' '.join(' '.join(' '.join(' '.join(header.split("\r\n"))\
-              .strip().split('?')).split('&')).split('=')).split(' ')
-    header = []
-    for value in _header:
-        header.append(value.replace("%20", " "))
-    return header
 
-
-def make_header(response, content_type, content_length):
+def make_header(http_status, content_type, content_length):
     """
     Builds and returns an HTTP header as a string. All arguments are required,
     and must be strings.
     """
-
-    header = "HTTP/1.1 %s\r\n" % response
-    header += "Server: %s\r\n" % const.SERVER_INFO
-    header += "Content-Length: %s\r\n" % content_length
-    header += "Connection: close\r\n"
-    header += "Content-Type: %s\r\n\n" % content_type
+    header = f"HTTP/1.1 {http_status}\r\n"
+    header += f"Server: {const.SERVER_INFO}\r\n"
+    header += f"Content-Length: {content_length}\r\n"
+    header += f"Connection: close\r\n"
+    header += f"Content-Type: {content_type}\r\n\n"
     return header
 
 
-def index(path, page):
+def get_dir_index(path, page):
     """
     Creates an index of a directory and returns it as HTML.
     """
-
-    # This code is kind of ugly...
-    cmd = "ls -p '%s'" % path
-    p = Popen(cmd, shell=True, stdin=PIPE, stdout=PIPE, stderr=STDOUT,
-              close_fds=True)
-    output = p.stdout.read()
-    files = output.split("\n")
-    html = "<html>\n<body>\n<h1>Index of '%s'</h1><br />\n" % page
-    html += "<pre>Name%sSize<br /><hr />\n" % (' ' * 16)
-    html += "<a href='../'>Parent Direcroty</a><br />\n"
-    if len(files) > 1:
-        for name in files[:-1]:
-            try:
-                fin = open("%s/%s" % (path, name), "r")
-                fsize = str(len(fin.read()))
-                fin.close()
-            except IOError, e:
-                fsize = "---"
-            if page == "/":
-                page = ""
-            html += "<a href='%s/%s'>%s</a>%s%s\n" % (
-                     page, name, name, ' '*(20-len(name)), fsize)
-    html += "</pre>\n<br />\n<hr />\n</body>\n</html>"
-    return html
+    index_html = "<pre>\n"
+    files = os.listdir(path)
+    for file in files:
+        index_html += f"<a href='{file}'>{file}</a>\n"
+    index_html += "</pre>"
+    return index_html
 
 
-def get_html(page):
+def get_response(requested_page):
     """
-    Opens the file that the client requested, reads the contents, and returns
-    them. If it is not able to read the file, it will return a 404 error, and
-    attempt to load the default 'missing' page. If no missing page is found it
-    will return a very basic header and HTML 404 message.
+    Reads the contents of the requested file and returns them along with the
+    accompanying file MIME type, and a helpful HTTP status code. If a directory
+    is requested, get_response will look for the default file as defined by
+    const.DEFAULT_PAGE. If the default page is not found, it return a directory
+    listing (if allowed by const.DIRECTORY_INDEXING). Else, it will return a 404
+    page.
     """
+    path_requested = const.DOCUMENT_ROOT + os.path.abspath(requested_page)
+    path_default = f"{path_requested}/{const.DEFAULT_PAGE}"
+    http_status = 200
+    response_type = "text/html"
 
-    path = const.DOCUMENT_ROOT + os.path.abspath(page)
     try:
-        fin = open(path, "r")
-        html = fin.read()
-        fin.close()
-        response = "200 OK"
-        mtype = types.guess_type(path)[0]
-    except IOError as (errno, strerr):
-        # requested page is a directory
-        if errno == 21:
-            # try to load the default page
-            try:
-                fin = open("%s/%s" % (path, const.DEFAULT_PAGE), "r")
-                html = fin.read()
-                fin.close()
-                response = "200 OK"
-                mtype = types.guess_type("%s/%s"%(path, const.DEFAULT_PAGE))[0]
-            except IOError, e:
-                # index the directory if the configuration allows it
-                if const.DIRECTORY_INDEXING:
-                    html = index(path, page)
-                    response = "200 OK"
-                    mtype = "text/html"
-                # if it doesn't allow it, say that the directory is forbidden
+        if os.path.exists(path_requested):
+            if os.path.isfile(path_requested):
+                response_data = get_file_contents(path_requested)
+                response_type = types.guess_type(path_requested)[0]
+            elif os.path.isdir(path_requested):
+                if os.path.exists(path_default):
+                    response_data = get_file_contents(path_default)
+                elif const.DIRECTORY_INDEXING:
+                    response_data = get_dir_index(path_requested,
+                        requested_page)
                 else:
-                    response = "403 Forbidden"
-                    mtype = "text/html"
-                    html = "<h1>403 Forbidden</h1>"
-                    log("[403] %s is forbidden" % page, "info")
-        # requested page is not found
-        elif errno == 2:
-            response = "404 Not Found"
-            log("[404] %s not found" % page, "info")
-            try:
-                mtype = types.guess_type("%s/%s"%(const.DOCUMENT_ROOT,
-                                          const.DEFAULT_PAGE))[0]
-                fin = open("%s/%s" % (const.DOCUMENT_ROOT,
-                            const.MISSING_PAGE), "r")
-                html = fin.read()
-                fin.close()
-            except IOError as (errno, strerr):
-                mtype = "text/html"
-                html = "<h1>404 Not Found</h1>"
-                log("%s is missing!" % const.MISSING_PAGE, "error")
-        # requested page is forbidden (permission denied)
-        elif errno == 13:
-            response = "403 Forbidden"
-            mtype = "text/html"
-            html = "<h1>403 Forbidden</h1>"
-            log("[403] %s is forbidden" % page, "info")
+                    response_data = get_error_html("403 Forbidden")
+                    http_status = 403
         else:
-            raise IOError(errno, strerr)
-    header = make_header(response, mtype, str(html.__len__()))
-    return header + html
+            response_data = get_error_html("404 Not Found")
+            http_status = 404
+    except Exception as e:
+        errno, strerr = e.args
+        if errno == 13:
+            response_data = get_error_html("403 Forbidden")
+            http_status = 403
+            log(f"403 Forbidden: {strerr}", "warning")
+        else:
+            response_data = get_error_html("500 Internal Server Error")
+            http_status = 500
+            log(f"Error {errno}: {strerr}", "error")
+
+    return http_status, response_type, response_data
+
+
+def get_error_html(message):
+    """
+    Returns HTML conveying the specified message as an H1 tag without deprecated
+    serif fonts.
+    """
+    return f"""
+        <!DOCYTPE html>
+        <html>
+        <head>
+            <title>{message}</title>
+            <style>* {{font-family: Arial, Sans-Serif;}}</style>
+        </head>
+        <body>
+            <h1>{message}</h1>
+        </body>
+        </html>
+    """
 
 
 class ClientHandler(threading.Thread):
     """
-    Gets clients from the queue and answers them. This is threaded, to allow
+    Gets clients from the queue and answers them. This is threaded to allow
     multiple page requests to be answered at once. Be default, HTTPy threads
     five instances of this class.
     """
-
-    def __init__(self, queue):
+    def __init__(self, q):
         threading.Thread.__init__(self)
-        self.queue = queue
+        self.q = q
+        self.client = None
+
+    def close(self):
+        if self.client:
+            self.client.close()
 
     def run(self):
         while True:
-            # grab a client from the queue
-            client, address = self.queue.get()
-            client.settimeout(0.1)
-            # client communication loop
+            # get a client from the queue
+            self.client, address = self.q.get()
+            self.client.settimeout(0.1)
             try:
-                header = client.recv(1024)
+                header = self.client.recv(1024)
             except:
                 log("The connection to %s timed out"
                      % address[0], "info")
                 header = None
             if header:
-                header_data = read_header(header)
-                if header_data.__len__() > 1:
-                    request = header_data[1]
-                    log("serving '%s' to %s" % (request, address[0]), "info")
-                    client.send("%s\r\n" % get_html(request))
-            client.close()
-
-            # tell queue that the client has been served
-            self.queue.task_done()
+                try:
+                    header_data = read_header(header)
+                except Exception as e:
+                    error, strerr = e.args
+                    log(f"Error parsing header from {str(address)}: {strerr}",
+                        "error")
+                    error_message = get_error_html("500 Internal Server Error")
+                    send_data(self.client, "500", "text/html", error_message)
+                    self.client.close()
+                    header_data = None
+                if header_data:
+                    try:
+                        request = header_data["Request"]
+                        log(f"Serving '{request}' to {str(address)}", "info")
+                        http_status, response_type, response_data = (
+                            get_response(request))
+                        send_data(self.client, http_status, response_type,
+                            response_data)
+                    except Exception as e:
+                        errno, strerr = e.args
+                        print(strerr)
+                        log("Error getting requested file for " +
+                            f"{str(address)}: {strerr}", "error")
+                        error_message = get_error_html(
+                            "500 Internal Server Error")
+                        send_data(self.client, "500", "text/html",
+                            error_message)
+            self.client.close()
+            self.q.task_done()
 
 
 def main():
@@ -259,21 +295,25 @@ def main():
     queue, then waits for connections, which it then puts on the queue for the
     ClientHandler threads to answer.
     """
+    global sock
+    global handlers
 
     load_configuration()
     log("%s, starting..." % const.SERVER_INFO, "info")
     # create queue for threading
-    queue = Queue.Queue()
+    q = queue.Queue()
     for i in range(const.THREADS):
-        handler = ClientHandler(queue)
+        handler = ClientHandler(q)
         handler.setDaemon(True)
         handler.start()
-    # open socket, bind port, and listen
+        handlers.append(handler)
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind((const.LISTEN_IP_ADDRESS, const.SERVER_PORT))
         log("Listening on port %s\n" % str(const.SERVER_PORT), "info")
-    except socket.error as (errno, strerr):
+    except socket.error as e:
+        errno, strerr = e.args
         log("Could not bind port %s: %s. Exiting..." % (const.SERVER_PORT,
                                                         strerr), "error")
         sys.exit(1)
@@ -282,8 +322,7 @@ def main():
         while True:
             client, address = sock.accept()
             log("accepted connection from %s" % str(address), "info")
-            # place the client in the queue
-            queue.put((client, address))
+            q.put((client, address))
     finally:
         safe_exit()
 
@@ -299,25 +338,24 @@ class HTTPyDaemon(daemon.Daemon):
 
 
 if __name__ == "__main__":
-    daemon = HTTPyDaemon('/tmp/httpy-daemon.pid')
+    daemon = HTTPyDaemon("/tmp/httpy-daemon.pid")
     if len(sys.argv) == 2:
-        if 'start' == sys.argv[1]:
+        if "start" == sys.argv[1]:
             daemon.start()
-        elif 'stop' == sys.argv[1]:
+        elif "stop" == sys.argv[1]:
             daemon.stop()
-        elif 'restart' == sys.argv[1]:
+        elif "restart" == sys.argv[1]:
             daemon.restart()
-        elif '--no-daemon' == sys.argv[1]:
+        elif "--no-daemon" == sys.argv[1]:
             try:
                 main()
             except KeyboardInterrupt:
                 safe_exit()
         else:
-            print "Unknown command"
+            print("Unknown command")
             sys.exit(2)
         sys.exit(0)
     else:
-        print "Usage: %s start|stop|restart\n" % sys.argv[0]
-        print "    --no-daemon  Stay in the foreground. For debugging.\n"
+        print("Usage: %s start|stop|restart\n" % sys.argv[0])
+        print("    --no-daemon  Stay in the foreground. For debugging.\n")
         sys.exit(2)
-
