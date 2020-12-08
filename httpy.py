@@ -128,6 +128,19 @@ def send_data(client, http_status, content_type, data):
     client.send(data)
 
 
+def send_redirect(client, http_status, content_type, data):
+    """
+    Sends the specified data to the specified client. Will also craft and send
+    an HTTP header using the content type and HTTP status specified.
+    """
+    redirect_location = data
+    data = f"Permanently moved <a href='{data}'>here</a>."
+    header = make_header(http_status, content_type, len(data),
+        {"Location": redirect_location})
+    client.send(bytes(header, "utf-8"))
+    client.send(bytes(data, "utf-8"))
+
+
 def read_header(header):
     """
     Takes an HTTP request as a string and returns the headers as a dict.
@@ -142,7 +155,7 @@ def read_header(header):
     return request_headers
 
 
-def make_header(http_status, content_type, content_length):
+def make_header(http_status, content_type, content_length, extra_headers={}):
     """
     Builds and returns an HTTP header as a string. All arguments are required,
     and must be strings.
@@ -151,6 +164,8 @@ def make_header(http_status, content_type, content_length):
     header += f"Server: {const.SERVER_INFO}\r\n"
     header += f"Content-Length: {content_length}\r\n"
     header += f"Connection: close\r\n"
+    for header_name in extra_headers:
+        header += f"{header_name}: {extra_headers[header_name]}\r\n"
     header += f"Content-Type: {content_type}\r\n\n"
     return header
 
@@ -159,10 +174,14 @@ def get_dir_index(path, page):
     """
     Creates an index of a directory and returns it as HTML.
     """
+    if page[0] is not "/":
+        page = f"/{page}"
+    if page is "/":
+        page = ""
     index_html = "<pre>\n"
     files = os.listdir(path)
     for file in files:
-        index_html += f"<a href='{file}'>{file}</a>\n"
+        index_html += f"<a href='{page}/{file}'>{file}</a>\n"
     index_html += "</pre>"
     return index_html
 
@@ -187,7 +206,10 @@ def get_response(requested_page):
                 response_data = get_file_contents(path_requested)
                 response_type = types.guess_type(path_requested)[0]
             elif os.path.isdir(path_requested):
-                if os.path.exists(path_default):
+                if requested_page[-1] is not "/":
+                    response_data = f"{requested_page}/"
+                    http_status = 301
+                elif os.path.exists(path_default):
                     response_data = get_file_contents(path_default)
                 elif const.DIRECTORY_INDEXING:
                     response_data = get_dir_index(path_requested,
@@ -274,8 +296,12 @@ class ClientHandler(threading.Thread):
                         log(f"Serving '{request}' to {str(address)}", "info")
                         http_status, response_type, response_data = (
                             get_response(request))
-                        send_data(self.client, http_status, response_type,
-                            response_data)
+                        if http_status == 301:
+                            send_redirect(self.client, http_status, "text/html",
+                                response_data)
+                        else:
+                            send_data(self.client, http_status, response_type,
+                                response_data)
                     except Exception as e:
                         errno, strerr = e.args
                         print(strerr)
